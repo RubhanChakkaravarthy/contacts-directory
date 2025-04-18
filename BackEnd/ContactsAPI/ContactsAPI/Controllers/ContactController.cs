@@ -1,46 +1,96 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
+﻿using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
-
-// For more information on enabling Web API for empty projects, visit https://go.microsoft.com/fwlink/?LinkID=397860
+using ContactsAPI.Models;
+using ContactsAPI.Services;
+using ContactsAPI.DTOs;
+using Microsoft.AspNetCore.JsonPatch;
+using System.Net;
 
 namespace ContactsAPI.Controllers
 {
     [Route("api/[controller]")]
-    public class ContactController : Controller
+    [ApiController]
+    public class ContactController : ApiControllerBase
     {
-        // GET: api/<controller>
-        [HttpGet]
-        public IEnumerable<string> Get()
+        private readonly IContactService _contactService;
+
+        public ContactController(IContactService contactService)
         {
-            return new string[] { "value1", "value2" };
+            _contactService = contactService;
         }
 
-        // GET api/<controller>/5
+        // POST: api/Contact/Search
+        [HttpPost("Search")]
+        public async Task<ActionResult<ResponseDto<PaginatedDto<ContactListItemDto>>>> GetContacts([FromBody] ContactSearchCriteriaDto criteria)
+        {
+            var response = await _contactService.GetContactsByCriteriaAsync(criteria);
+            return CreateActionResultFromResponse(response);
+        }
+
+        // GET api/Contact/5
         [HttpGet("{id}")]
-        public string Get(int id)
+        public async Task<ActionResult<ResponseDto<Contact>>> GetContact(int id)
         {
-            return "value";
+            var response = await _contactService.GetContactByIdAsync(id);
+            return CreateActionResultFromResponse(response);
         }
 
-        // POST api/<controller>
+        // POST api/Contact
         [HttpPost]
-        public void Post([FromBody]string value)
+        public async Task<ActionResult<ResponseDto<Contact>>> CreateContact([FromBody] Contact contact)
         {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ResponseDto<Contact>.CreateError(ModelState));
+            }
+
+            var response = await _contactService.CreateContactAsync(contact);
+            return CreateActionResultFromResponse(response);
         }
 
-        // PUT api/<controller>/5
-        [HttpPut("{id}")]
-        public void Put(int id, [FromBody]string value)
+        // PATCH api/Contact/5
+        [HttpPatch("{id}")]
+        public async Task<ActionResult<ResponseDto<Contact>>> UpdateContact(int id, [FromBody] JsonPatchDocument<Contact> contactPatch)
         {
+            if (contactPatch == null)
+            {
+                var errorResponse = ResponseDto<Contact>.CreateError(HttpStatusCode.BadRequest, "Patch document cannot be null");
+                return BadRequest(errorResponse);
+            }
+
+            // Remove the generated and unmodifiable properties from the patch document to prevent them from being modified
+            contactPatch.Operations.RemoveAll(o => o.path == "/createdOn" || o.path == "/updatedOn" || o.path == "/email" || o.path == "/id");
+
+
+            // First, get the contact
+            var contactResponse = await _contactService.GetContactByIdAsync(id);
+            if (!contactResponse.Success)
+            {
+                return CreateActionResultFromResponse(contactResponse);
+            }
+
+            var contact = contactResponse.Data;
+
+            // Apply the patch
+            contactPatch.ApplyTo(contact);
+
+            // Validate the model after applying the patch
+            if (!TryValidateModel(contact))
+            {
+                return CreateActionResultFromResponse(ResponseDto<Contact>.CreateError(ModelState));
+            }
+
+            // Update the contact
+            var updateResponse = await _contactService.UpdateContactAsync(id, contact);
+            return CreateActionResultFromResponse(updateResponse);
         }
 
-        // DELETE api/<controller>/5
+        // DELETE api/Contact/5
         [HttpDelete("{id}")]
-        public void Delete(int id)
+        public async Task<ActionResult<ResponseDto<bool>>> DeleteContact(int id)
         {
+            var response = await _contactService.DeleteContactAsync(id);
+            return CreateActionResultFromResponse(response);
         }
     }
 }

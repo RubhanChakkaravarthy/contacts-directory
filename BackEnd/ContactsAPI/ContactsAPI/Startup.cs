@@ -11,6 +11,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.OpenApi.Models;
+using Microsoft.EntityFrameworkCore;
+using ContactsAPI.Services;
+using ContactsAPI.Repositories;
+using Microsoft.AspNetCore.Mvc.NewtonsoftJson;
 
 namespace ContactsAPI
 {
@@ -26,7 +30,32 @@ namespace ContactsAPI
         // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
-            services.AddControllers();
+            services.AddControllers()
+                .AddNewtonsoftJson(options =>
+                {
+                    // Configure JSON serialization to use camelCase
+                    options.SerializerSettings.ContractResolver = new Newtonsoft.Json.Serialization.CamelCasePropertyNamesContractResolver();
+                    options.SerializerSettings.NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore;
+                });
+
+            // Add the DbContext using InMemory database
+            services.AddDbContext<ContactDbContext>(options =>
+                options.UseInMemoryDatabase(Configuration.GetConnectionString("ContactDb")));
+
+            // Register the repository
+            services.AddScoped<IContactRepository, ContactRepository>();
+            
+            // Register the ContactService
+            services.AddScoped<IContactService, ContactService>();
+
+            services.AddCors(options => {
+                options.AddPolicy("AllowLocalhost",
+                    builder => {
+                        builder.WithOrigins("http://localhost:3000")
+                               .AllowAnyMethod()
+                               .AllowAnyHeader();
+                    });
+            });
 
             services.AddSwaggerGen(c =>
             {
@@ -46,12 +75,15 @@ namespace ContactsAPI
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
-        public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
+        public void Configure(IApplicationBuilder app, IWebHostEnvironment env, ContactDbContext dbContext)
         {
             if (env.IsDevelopment())
             {
                 app.UseDeveloperExceptionPage();
             }
+
+            // Ensure the database is created on application start
+            dbContext.Database.EnsureCreated();
 
             app.UseSwagger();
 
@@ -68,6 +100,8 @@ namespace ContactsAPI
             app.UseHttpsRedirection();
 
             app.UseRouting();
+
+            app.UseCors("AllowLocalhost");
 
             app.UseAuthorization();
 
